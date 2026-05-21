@@ -9,6 +9,9 @@ FIELD_RE = re.compile(
 )
 FUNCTION_RE = re.compile(r"^\s*(?P<decl>.+?\))\s*;\s*$")
 CLASS_RE = re.compile(r"^Class:\s+(?P<class_path>.+?)\s*$")
+UNKNOWN_PROPERTY_RE = re.compile(
+    r"UNKNOWN PROPERTY:\s*(?P<type>[A-Za-z_]\w*)\s+(?P<path>[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+)"
+)
 
 
 def clean_ue_name(name):
@@ -53,6 +56,15 @@ def clean_dump_type(text):
     return text
 
 
+def unknown_property_from_line(line):
+    match = UNKNOWN_PROPERTY_RE.search(line)
+    if not match:
+        return None
+    property_path = match.group("path")
+    name = property_path.rsplit(".", 1)[-1]
+    return match.group("type"), name
+
+
 def parse_files(files):
     parents = {}
     records = []
@@ -81,6 +93,23 @@ def parse_files(files):
                 decl = field_match.group("decl").rstrip(";").strip()
                 offset = int(field_match.group("offset"), 16)
                 size = int(field_match.group("size"), 16)
+
+                recovered_unknown = unknown_property_from_line(line)
+                if "UnknownData" in decl and recovered_unknown:
+                    type_text, name = recovered_unknown
+                    records.append(
+                        {
+                            "kind": "field",
+                            "owner": current_raw,
+                            "type": type_text,
+                            "name": name,
+                            "offset": offset,
+                            "size": size,
+                            "path": path,
+                            "line": line_no,
+                        }
+                    )
+                    continue
 
                 if "UnknownData" in decl or "MISSED OFFSET" in line:
                     continue
@@ -218,9 +247,61 @@ def write_separate_internal_dumps(parents, records, sdku_output, sdkw_output, sd
     return len(allowed_classes) if allowed_classes is not None else None
 
 
+def print_menu():
+    print("")
+    print("Internal SDK TXT Extractor")
+    print("1. Generate SDKU_from_internal.txt and SDKW_from_internal.txt")
+    print("2. Generate SDK_from_internal.txt")
+    print("3. Generate SDK_from_internal_dump.txt")
+    print("0. Exit")
+    print("")
+
+
+def run_interactive_menu(sdk_dir):
+    files = sorted(sdk_dir.glob("*_classes.hpp")) + sorted(sdk_dir.glob("*_structs.hpp"))
+    parents, records = parse_files(files)
+
+    while True:
+        print_menu()
+        choice = input("Select option: ").strip()
+
+        if choice == "0":
+            print("Exit")
+            return
+
+        if choice == "1":
+            sdkw_count = write_separate_internal_dumps(
+                parents,
+                records,
+                Path("SDKU_from_internal.txt"),
+                Path("SDKW_from_internal.txt"),
+                Path("SDKW.txt"),
+            )
+            print("Wrote SDKU_from_internal.txt")
+            print("Wrote SDKW_from_internal.txt")
+            if sdkw_count is not None:
+                print(f"SDKW output filtered with {sdkw_count} classes from SDKW.txt")
+        elif choice == "2":
+            write_sdk_txt(parents, records, Path("SDK_from_internal.txt"), "compact")
+            print("Wrote SDK_from_internal.txt")
+        elif choice == "3":
+            write_sdk_txt(parents, records, Path("SDK_from_internal_dump.txt"), "dump")
+            print("Wrote SDK_from_internal_dump.txt")
+        else:
+            print("Invalid option")
+            continue
+
+        type_count = sum(1 for item in records if item["kind"] == "type")
+        field_count = sum(1 for item in records if item["kind"] == "field")
+        function_count = sum(1 for item in records if item["kind"] == "function")
+        print(f"Read {len(files)} header files")
+        print(f"Types: {type_count}, fields: {field_count}, functions: {function_count}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Convert UE internal SDK headers to SDK.txt style output.")
     parser.add_argument("sdk_dir", nargs="?", default="SDK", help="Folder containing *_classes.hpp and *_structs.hpp files")
+    parser.add_argument("--menu", action="store_true", help="Show an interactive menu instead of typing full commands.")
     parser.add_argument("-o", "--output", default="SDK_from_internal.txt", help="Output SDK.txt-style file")
     parser.add_argument(
         "--style",
@@ -243,6 +324,10 @@ def main():
     args = parser.parse_args()
 
     sdk_dir = Path(args.sdk_dir)
+    if args.menu:
+        run_interactive_menu(sdk_dir)
+        return
+
     files = sorted(sdk_dir.glob("*_classes.hpp")) + sorted(sdk_dir.glob("*_structs.hpp"))
     parents, records = parse_files(files)
 

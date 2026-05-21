@@ -40,6 +40,28 @@ SDKU_from_internal.txt
 SDKW_from_internal.txt
 ```
 
+## Run Without Pasting Commands
+
+Double-click:
+
+```text
+run_dump_menu.bat
+```
+
+Or run:
+
+```powershell
+python internal_sdk_to_sdktxt.py SDK --menu
+```
+
+Then choose an option by number:
+
+```text
+1. Generate SDKU_from_internal.txt and SDKW_from_internal.txt
+2. Generate SDK_from_internal.txt
+3. Generate SDK_from_internal_dump.txt
+```
+
 ## Generate One TXT Dump
 
 Compact SDK.txt-style output:
@@ -86,4 +108,3 @@ If `SDKW.txt` is missing, the SDKW output falls back to including all parsed int
 - Missed offset placeholders are skipped.
 - UE prefixes such as `U`, `A`, and `F` are cleaned in class and struct names.
 - Common UE container types like `TArray`, `TMap`, `TEnumAsByte`, and `TScriptInterface` are converted into dump-style text.
-

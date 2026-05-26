@@ -1,4 +1,5 @@
 import argparse
+import json
 import re
 from pathlib import Path
 
@@ -185,6 +186,70 @@ def parse_template_classes(path):
     return classes
 
 
+def symbol_name(class_name, name):
+    raw = f"{class_name}_{name}"
+    raw = re.sub(r"[^A-Za-z0-9_]", "_", raw)
+    raw = re.sub(r"_+", "_", raw).strip("_")
+    if raw and raw[0].isdigit():
+        raw = "_" + raw
+    return raw
+
+
+def external_offset_items(parents, records):
+    items = []
+    seen = set()
+
+    for item in records:
+        if item["kind"] != "field":
+            continue
+
+        owner = clean_ue_name(item["owner"])
+        symbol = symbol_name(owner, item["name"])
+        if symbol in seen:
+            symbol = f'{symbol}_line_{item["line"]}'
+        seen.add(symbol)
+
+        items.append(
+            {
+                "class_path": class_path(item["owner"], parents),
+                "class": owner,
+                "name": item["name"],
+                "symbol": symbol,
+                "offset": item["offset"],
+                "offset_hex": f'0x{item["offset"]:x}',
+                "size": item["size"],
+                "type": item["type"],
+                "source": str(item["path"]),
+                "line": item["line"],
+            }
+        )
+
+    return items
+
+
+def write_external_offsets(parents, records, hpp_output, json_output):
+    items = external_offset_items(parents, records)
+    lines = [
+        "#pragma once",
+        "#include <cstdint>",
+        "",
+        "namespace ExternalOffsets {",
+    ]
+
+    for item in items:
+        lines.append(
+            f'    constexpr std::uintptr_t {item["symbol"]} = {item["offset_hex"]}; '
+            f'// {item["class_path"]}::{item["name"]}, size {item["size"]}'
+        )
+
+    lines.append("}")
+    lines.append("")
+
+    hpp_output.write_text("\n".join(lines), encoding="utf-8")
+    json_output.write_text(json.dumps(items, indent=2), encoding="utf-8")
+    return len(items)
+
+
 def write_sdk_txt(parents, records, output, style="compact", allowed_classes=None):
     by_owner = {}
     order = []
@@ -253,6 +318,7 @@ def print_menu():
     print("1. Generate SDKU_from_internal.txt and SDKW_from_internal.txt")
     print("2. Generate SDK_from_internal.txt")
     print("3. Generate SDK_from_internal_dump.txt")
+    print("4. Generate ExternalOffsets.hpp and ExternalOffsets.json")
     print("0. Exit")
     print("")
 
@@ -287,6 +353,16 @@ def run_interactive_menu(sdk_dir):
         elif choice == "3":
             write_sdk_txt(parents, records, Path("SDK_from_internal_dump.txt"), "dump")
             print("Wrote SDK_from_internal_dump.txt")
+        elif choice == "4":
+            count = write_external_offsets(
+                parents,
+                records,
+                Path("ExternalOffsets.hpp"),
+                Path("ExternalOffsets.json"),
+            )
+            print("Wrote ExternalOffsets.hpp")
+            print("Wrote ExternalOffsets.json")
+            print(f"External offsets: extracted {count}")
         else:
             print("Invalid option")
             continue
@@ -321,6 +397,13 @@ def main():
         default="SDKW.txt",
         help="Existing SDKW.txt used to choose classes for the SDKW-like internal output.",
     )
+    parser.add_argument(
+        "--external-offsets",
+        action="store_true",
+        help="Generate ExternalOffsets.hpp and ExternalOffsets.json directly from the internal SDK.",
+    )
+    parser.add_argument("--external-hpp", default="ExternalOffsets.hpp", help="Output C++ header for --external-offsets.")
+    parser.add_argument("--external-json", default="ExternalOffsets.json", help="Output JSON file for --external-offsets.")
     args = parser.parse_args()
 
     sdk_dir = Path(args.sdk_dir)
@@ -331,7 +414,12 @@ def main():
     files = sorted(sdk_dir.glob("*_classes.hpp")) + sorted(sdk_dir.glob("*_structs.hpp"))
     parents, records = parse_files(files)
 
-    if args.separate_dumps:
+    if args.external_offsets:
+        count = write_external_offsets(parents, records, Path(args.external_hpp), Path(args.external_json))
+        print(f"Wrote {args.external_hpp}")
+        print(f"Wrote {args.external_json}")
+        print(f"External offsets: extracted {count}")
+    elif args.separate_dumps:
         sdkw_template = Path(args.sdkw_template) if args.sdkw_template else None
         sdkw_class_count = write_separate_internal_dumps(
             parents,

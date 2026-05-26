@@ -60,6 +60,7 @@ Then choose an option by number:
 1. Generate SDKU_from_internal.txt and SDKW_from_internal.txt
 2. Generate SDK_from_internal.txt
 3. Generate SDK_from_internal_dump.txt
+4. Generate ExternalOffsets.hpp and ExternalOffsets.json
 ```
 
 ## Generate One TXT Dump
@@ -74,6 +75,20 @@ Dump-style TXT output:
 
 ```powershell
 python internal_sdk_to_sdktxt.py SDK -o SDK_from_internal_dump.txt --style dump
+```
+
+## Generate External Offsets
+
+Generate `ExternalOffsets.hpp` and `ExternalOffsets.json` directly from the internal SDK:
+
+```powershell
+python internal_sdk_to_sdktxt.py SDK --external-offsets
+```
+
+Custom output paths:
+
+```powershell
+python internal_sdk_to_sdktxt.py SDK --external-offsets --external-hpp ExternalOffsets.hpp --external-json ExternalOffsets.json
 ```
 
 ## Output Format
